@@ -2,18 +2,260 @@ openapi: 3.0.3
 info:
   title: Order Status API
   version: 1.0.0
+  description: API to list, create, view and update the status of orders.
+
+servers:
+  - url: https://api.example.com/v1
+
+security:
+  - bearerAuth: []
+
 paths:
-  /orders/{orderId}:
+  /orders:
     get:
-      summary: Get order status
+      summary: List orders
+      description: Returns a paginated list of orders, optionally filtered by status.
+      operationId: listOrders
       parameters:
-        - name: orderId
-          in: path
-          required: true
+        - name: status
+          in: query
+          description: Filter orders by status.
           schema:
-            type: string
+            $ref: '#/components/schemas/OrderStatus'
+        - name: limit
+          in: query
+          description: Maximum number of orders to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Number of orders to skip before starting to return results.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         '200':
-          description: Order found
+          description: A list of orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      summary: Create an order
+      description: Creates a new order and returns it.
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreate'
+      responses:
+        '201':
+          description: Order created.
+          headers:
+            Location:
+              description: URL of the newly created order.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      summary: Get order status
+      description: Returns the details and current status of a single order.
+      operationId: getOrder
+      responses:
+        '200':
+          description: Order found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
-          description: Order not found
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      summary: Update an order
+      description: >
+        Partially updates an order using JSON Merge Patch.
+        Only the fields sent in the request body are changed.
+        Setting a nullable field to null removes it.
+      operationId: updateOrder
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/OrderPatch'
+      responses:
+        '200':
+          description: Order updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token sent in the Authorization header.
+
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      description: Unique identifier of the order.
+      schema:
+        type: string
+
+  schemas:
+    OrderStatus:
+      type: string
+      description: Current lifecycle status of an order.
+      enum: [PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+    Order:
+      type: object
+      required: [orderId, status, item, quantity]
+      properties:
+        orderId:
+          type: string
+          description: Unique identifier of the order.
+          example: '101'
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        item:
+          type: string
+          description: Name of the ordered item.
+          example: laptop
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of units ordered.
+          example: 2
+        address:
+          type: string
+          nullable: true
+          description: Delivery address.
+          example: Toronto
+    OrderCreate:
+      type: object
+      required: [item, quantity]
+      properties:
+        item:
+          type: string
+          description: Name of the item to order.
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of units to order.
+        address:
+          type: string
+          nullable: true
+          description: Delivery address.
+    OrderPatch:
+      type: object
+      description: Fields that can be changed on an existing order.
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        address:
+          type: string
+          nullable: true
+          description: New delivery address. Send null to remove it.
+    OrderList:
+      type: object
+      properties:
+        data:
+          type: array
+          description: Orders on the current page.
+          items:
+            $ref: '#/components/schemas/Order'
+        limit:
+          type: integer
+          description: Page size used for this response.
+        offset:
+          type: integer
+          description: Offset used for this response.
+        total:
+          type: integer
+          description: Total number of orders matching the request.
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+          example: ORDER_NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error message.
+          example: Order 999 was not found.
+
+  responses:
+    BadRequest:
+      description: The request is invalid or malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: The access token is missing, invalid or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
